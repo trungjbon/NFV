@@ -22,38 +22,31 @@ class Node:
     
     def using(self, vnf):
         self.vnf_dict[vnf] += 1
-
-    def not_using(self, vnf):
-        self.vnf_dict[vnf] -= 1
-    
-    def deploy(self, vnf, time):
-        total_capacity = 0
-
-        self.vnf_valid_time[vnf] = (vnf.boot_time[self.name] + time) if (vnf.boot_time is not None) else time
-        self.vnf_dict[vnf] = 0
+        #
+        capacity = vnf.get_total_demand_capacity()
         for key in self.used_capacity.keys():
             self.used_capacity[key] += vnf.demand_capacity[key]
 
-        total_capacity += vnf.get_total_demand_capacity()
+        return capacity
 
-        return total_capacity
+    def not_using(self, vnf):
+        self.vnf_dict[vnf] -= 1
+        #
+        capacity = vnf.get_total_demand_capacity()
+        for key in self.used_capacity.keys():
+            self.used_capacity[key] -= vnf.demand_capacity[key]
 
+        return capacity
+    
+    def deploy(self, vnf, time):
+        self.vnf_valid_time[vnf] = (vnf.boot_time[self.name] + time) if (vnf.boot_time is not None) else time
+        self.vnf_dict[vnf] = 0
 
-    # def update_valid_time(self, vnf, time):
-    #     self.vnf_valid_time[vnf] = time
-        
     def release(self):
-        total_capacity = 0
-
         for vnf in self.vnf_dict.keys():
             if (self.vnf_dict[vnf] == 0):
-                for key in self.used_capacity.keys():
-                    self.used_capacity[key] -= vnf.demand_capacity[key]
-                total_capacity += vnf.get_total_demand_capacity()
                 self.vnf_dict[vnf] = -1
                 self.vnf_valid_time[vnf] = float("inf")
-        
-        return total_capacity
 
     def get_total_used_capacity(self):
         return sum(self.used_capacity.values())
@@ -155,66 +148,4 @@ class Request:
         
     def __repr__(self):
         return f"Request({self.name}, bw={self.bandwidth}, SFC={self.sfc}, due_date={self.due_date})"
-    
-
-########################################################################
-
-# node_ingress = Node(id="ingress", delay=0, capacity=0)
-# node_a = Node(id="a", delay=50, capacity=8)
-# node_b = Node(id="b", delay=40, capacity=11)
-# node_c = Node(id="c", delay=80, capacity=15)
-# node_d = Node(id="d", delay=60, capacity=12)
-# node_egress = Node(id="egress", delay=0, capacity=0)
-
-# network = Graph()
-# network.add_edge(node_ingress, node_a, link_delay=0)
-# network.add_edge(node_a, node_b, link_delay=15)
-# network.add_edge(node_a, node_c, link_delay=10)
-# network.add_edge(node_b, node_d, link_delay=15)
-# network.add_edge(node_c, node_d, link_delay=25)
-# network.add_edge(node_d, node_egress, link_delay=0)
-
-# print(network)
-
-# vnf1 = VNF(id="f1", capacity=8)
-# vnf2 = VNF(id="f2", capacity=6)
-# vnf3 = VNF(id="f3", capacity=14)
-# vnf4 = VNF(id="f4", capacity=5)
-
-# request1 = Request(id="r1", data_rate=150, vnfs=[vnf1, vnf3])
-# request2 = Request(id="r2", data_rate=200, vnfs=[vnf1, vnf2])
-# request3 = Request(id="r1", data_rate=300, vnfs=[vnf2, vnf3, vnf4])
-
-# def route_between(u, v, rate):
-#     visited = set()
-#     queue = [(u, [])]
-
-#     while (queue):
-#         curr, path = queue.pop(0)
-#         if (curr == v):
-#             return path
         
-#         for next, link in graph.neighbors(curr):
-#             if ((next not in visited) and link.can_route(rate)):
-#                 visited.add(next)
-#                 queue.append((next, path + [link]))
-
-#     return None
-
-
-# def select_path(paths, routing_rule, data_rate):
-#         best_path = None
-#         best_prio = None
-
-#         for path in paths:
-#             if (not is_path_feasible(path, data_rate)):
-#                 continue
-
-#             BWU, PL, PD, DR = get_routing_terminals(path, data_rate)
-#             prio = routing_rule(BWU, PL, PD, DR)
-
-#             if ((best_prio is None) or (prio > best_prio)):
-#                 best_prio = prio
-#                 best_path = path
-
-#         return best_path
