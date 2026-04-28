@@ -163,7 +163,7 @@ def evaluate_individual(ind, data_file, start_t=0, end_t=0, display=False, penal
  
     reject_ratio = num_rejected_requests / len(requests)
     if (reject_ratio > 0.3):
-        penalty_cost = (reject_ratio - 0.3) * penalty_cost
+        penalty_cost = (reject_ratio - 0.3) * penalty_cost * 2
         penalty_reject = (reject_ratio - 0.3) * penalty_reject
 
         total_cost += penalty_cost
@@ -328,7 +328,7 @@ from sklearn.cluster import KMeans
 def cluster_population(pop, n_clusters):
     vectors = np.array([semantic_vector(ind) for ind in pop])
 
-    kmeans = KMeans(n_clusters=n_clusters, random_state=0)
+    kmeans = KMeans(n_clusters=n_clusters, random_state=SEED)
     labels = kmeans.fit_predict(vectors)
 
     clusters = {}
@@ -353,9 +353,11 @@ def select_samples(clusters):
 # GP main loop
 # =========================
 
-def genetic_programming(pop_size=100, generation=30, cx_prob=0.8, mut_prob=0.2, elite_size=1):
-    front = None
-    # best_ind_global = None
+def genetic_programming(pop_size=100, generation=30, cx_prob=0.8, mut_prob=0.2):
+    # Khởi tạo Archive tốt nhất mọi thời đại
+    best_archive = tools.ParetoFront()
+
+    # front = None
     
     pop = toolbox.population(n=pop_size)
     
@@ -378,10 +380,8 @@ def genetic_programming(pop_size=100, generation=30, cx_prob=0.8, mut_prob=0.2, 
             fit = toolbox.evaluate(ind)
             ind.fitness.values = fit
 
-            # # Cập nhật global best
-            # if ((best_ind_global is None) or (fit[1] < best_ind_global.fitness.values[1])):
-            #     best_ind_global = toolbox.clone(ind)
-            #     best_ind_global.fitness.values = fit
+            # CẬP NHẬT
+            best_archive.update([ind])
 
         # 3. Build Surrogate (implicit qua archive)
             archive.append((vec, fit))
@@ -428,10 +428,8 @@ def genetic_programming(pop_size=100, generation=30, cx_prob=0.8, mut_prob=0.2, 
             fit = toolbox.evaluate(ind)
             ind.fitness.values = fit
 
-            # # Cập nhật global best
-            # if ((best_ind_global is None) or (fit[1] < best_ind_global.fitness.values[1])):
-            #     best_ind_global = toolbox.clone(ind)
-            #     best_ind_global.fitness.values = fit
+            # CẬP NHẬT
+            best_archive.update([ind])
 
             archive.append((vec, fit))
             print(f"\tDone evaluate {len(archive)} ind")
@@ -450,44 +448,45 @@ def genetic_programming(pop_size=100, generation=30, cx_prob=0.8, mut_prob=0.2, 
 
         # 9. Logging
         front = tools.sortNondominated(pop, len(pop), first_front_only=True)[0]
-
         print(f"Pareto front size: {len(front)}")
         f1 = [ind.fitness.values[0] for ind in front]
         f2 = [ind.fitness.values[1] for ind in front]
- 
         print(f"Min cost: {min(f1)}")
         print(f"Min reject: {min(f2)}")
-        # print(best_ind_global.fitness.values)
+    
+        f2_archive = [ind.fitness.values[1] for ind in best_archive]
+        print(f"Global Min reject (Archive): {min(f2_archive)}")
 
-    return front
+    # return front
+    return best_archive
 
-# parents = tools.selTournament(pop, k=pop_size, tournsize=2)
 # =========================
 # Run
 # =========================
 
-# data_folder = "input_25"
-data_folder = "data_1_9"
-result_file = "result02\\nsf\\nsf_centers_easy_s2.txt"
-result_file_csv = "result02\\nsf\\nsf_centers_easy_s2.csv"
+data_folder = "input_25"
+# data_folder = "data_1_9"
+result_file = "result02\\end02_r42\\conus_urban_easy_s3.txt"
+result_file_csv = "result02\\end02_r42\\conus_urban_easy_s3.csv"
 
-# data_files = [f for f in os.listdir(data_folder) if (f.startswith("nsf_centers_easy") or f.startswith("nsf_centers_normal"))]
+# data_files = [f for f in os.listdir(data_folder) if (f.startswith("nsf_uniform_easy") or f.startswith("nsf_uniform_normal"))]
 
-data_files = [f for f in os.listdir(data_folder) if (f.startswith("nsf_centers_easy_s2"))]
+data_files = [f for f in os.listdir(data_folder) if (f.startswith("conus_urban_easy_s3"))]
 
 import csv
 
 with open(result_file_csv, mode="w", newline="", encoding="utf-8") as file:
     writer = csv.writer(file)
     writer.writerow(["Objective: (Cost, Num rejected reqs)"])
-    writer.writerow(["DATASET", "GP reject", "", "Heuristic 1 (Greedy)", "", "Heuristic 2 (Combine)", "", "Heuristic 3 (Random)", ""])  # header
-    writer.writerow(["", "Fitness", "Percentage rejected", "Fitness", "Percentage rejected","Fitness", "Percentage rejected",
-                     "Fitness", "Percentage rejected", "Fitness", "Percentage rejected"])
+    writer.writerow(["DATASET", "GP reject", "",
+                     "Heuristic 1 (Greedy)", "", "Heuristic 2 (First Fit)", "", "Heuristic 3 (Random)", ""])  # header
+    writer.writerow(["", "Fitness", "Percentage rejected", 
+                     "Fitness", "Percentage rejected", "Fitness", "Percentage rejected", "Fitness", "Percentage rejected"])
 
     with open(result_file, "w") as f:
         for file in data_files:
             data_path = os.path.join(data_folder, file)
-
+            set_seed(SEED)
             print(f"===== Running {file} =====")
             f.write(f"- DATASET: {file}\n")
             f.write(f"- Objective: (Cost, Num rejected reqs)\n")
@@ -530,27 +529,23 @@ with open(result_file_csv, mode="w", newline="", encoding="utf-8") as file:
                 evaluate_individual, data_file=data_path, start_t=start_t, end_t=end_t, penalty_cost=total_cost, penalty_reject=num_rejected_requests
             ))
 
-            pareto_front = genetic_programming()
+            pareto_archive = genetic_programming()
             # f.write(f"\n\t+ Pareto front size: {len(pareto_front)}")
-            # for i, ind in enumerate(pareto_front):
-            #     f.write(f"\n\t\tSol {i}: {ind.fitness.values}")
+            # for i, ind in enumerate(pareto_archive):
+            #     print(f"Sol {i}: {ind.fitness.values}")
+            print(f"Len pareto: {len(pareto_archive)}")
+            
+            # k = min(len(pareto_archive), 20)
+            # best_inds = sorted(pareto_archive, key=lambda ind: ind.fitness.values[1])[:k]
+            
+            # best_ind_reject = min(pareto_archive, key=lambda ind: ind.fitness.values[1])
 
-            # best_ind_cost = min(pareto_front, key=lambda ind: ind.fitness.values[0])
-            best_ind_reject = min(pareto_front, key=lambda ind: ind.fitness.values[1])
-
-            # f.write(f"\t\t+ Selected cost solution:\n")
-            # f.write(f"\t\t\t> ACT rule: {best_ind_cost[0]}\n")
-            # f.write(f"\t\t\t> ORD rule: {best_ind_cost[1]}\n")
-            # f.write(f"\t\t\t> PLACE rule: {best_ind_cost[2]}\n")
-            # f.write(f"\t\t\t> ROUTE rule: {best_ind_cost[3]}\n")
-            # f.write(f"\t\t\t> Finess: {best_ind_cost.fitness.values}\n\n")
-
-            f.write(f"\t\t+ Selected reject solution:\n")
-            f.write(f"\t\t\t> ACT rule: {best_ind_reject[0]}\n")
-            f.write(f"\t\t\t> ORD rule: {best_ind_reject[1]}\n")
-            f.write(f"\t\t\t> PLACE rule: {best_ind_reject[2]}\n")
-            f.write(f"\t\t\t> ROUTE rule: {best_ind_reject[3]}\n")
-            f.write(f"\t\t\t> Finess: {best_ind_reject.fitness.values}\n\n")
+            # f.write(f"\t\t+ Selected reject solution:\n")
+            # f.write(f"\t\t\t> ACT rule: {best_ind_reject[0]}\n")
+            # f.write(f"\t\t\t> ORD rule: {best_ind_reject[1]}\n")
+            # f.write(f"\t\t\t> PLACE rule: {best_ind_reject[2]}\n")
+            # f.write(f"\t\t\t> ROUTE rule: {best_ind_reject[3]}\n")
+            # f.write(f"\t\t\t> Finess: {best_ind_reject.fitness.values}\n\n")
 
             # Test
             start_t = end_t + 1
@@ -560,12 +555,39 @@ with open(result_file_csv, mode="w", newline="", encoding="utf-8") as file:
             reqs = [req for req in requests if ((req.arrival_time >= start_t) and (req.arrival_time <= end_t))]
             f.write(f"\t\t+ Total requests: {len(reqs)}\n")
 
-            # fitness_cost = evaluate_individual(best_ind_cost, data_file=data_path, start_t=start_t, end_t=end_t, display=True)
-            # f.write(f"\t\t+ Fitness cost: {fitness_cost}\n")
-            # percentage_rejected_by_gp_cost = round(fitness_cost[1] / len(reqs), 2)
-            # f.write(f"\t\t+ Percentage of rejected requests: {percentage_rejected_by_gp_cost}%\n\n")
+            f.write(f"\t\t+ Len pareto: {len(pareto_archive)}\n")
 
-            fitness_reject = evaluate_individual(best_ind_reject, data_file=data_path, start_t=start_t, end_t=end_t, display=True)
+            #
+            best_ind = None
+            best_cost_test = float("inf")
+            best_reject_test = float("inf")
+
+            for i, ind in enumerate(pareto_archive):
+                print(f"\nEvaluate ind {i} in test")
+                f.write(f"\t\t\t> Evaluate ind {i} in test\n")
+
+                fitness_test = evaluate_individual(ind, data_file=data_path, start_t=start_t, end_t=end_t)
+                print(f"Fitness: {ind.fitness.values}")
+                print(f"Fitness test: {fitness_test}")
+                f.write(f"\t\t\t> Fitness: {ind.fitness.values}\n")
+                f.write(f"\t\t\t> Fitness test: {fitness_test}\n\n")
+
+                if ((fitness_test[1] < best_reject_test) or 
+                    ((fitness_test[1] == best_reject_test) and (fitness_test[0] < best_cost_test))):
+                    best_cost_test = fitness_test[0]
+                    best_reject_test = fitness_test[1]
+                    best_ind = ind
+
+            f.write(f"\t\t+ Selected reject solution:\n")
+            f.write(f"\t\t\t> ACT rule: {best_ind[0]}\n")
+            f.write(f"\t\t\t> ORD rule: {best_ind[1]}\n")
+            f.write(f"\t\t\t> PLACE rule: {best_ind[2]}\n")
+            f.write(f"\t\t\t> ROUTE rule: {best_ind[3]}\n")
+            f.write(f"\t\t\t> Finess: {best_ind.fitness.values}\n\n")
+            #
+
+            # fitness_reject = evaluate_individual(best_ind_reject, data_file=data_path, start_t=start_t, end_t=end_t, display=True)
+            fitness_reject = evaluate_individual(best_ind, data_file=data_path, start_t=start_t, end_t=end_t, display=True)
             f.write(f"\t\t+ Fitness reject: {fitness_reject}\n")
             percentage_rejected_by_gp_reject = round(fitness_reject[1] / len(reqs), 2)
             f.write(f"\t\t+ Percentage of rejected requests: {percentage_rejected_by_gp_reject}%\n\n")
@@ -579,7 +601,8 @@ with open(result_file_csv, mode="w", newline="", encoding="utf-8") as file:
                                         action_rule=greedy_action_rule, 
                                         order_rule=greedy_order_rule, 
                                         placement_rule=greedy_placement_rule,
-                                        routing_rule=greedy_routing_rule)
+                                        routing_rule=greedy_routing_rule,
+                                        display=True)
             f.write(f"\t\t+ Fitness: {fitness_heuristic1}\n")
             percentage_rejected_by_heuristic1 = round(fitness_heuristic1[1] / len(reqs), 2)
             f.write(f"\t\t+ Percentage of rejected requests: {percentage_rejected_by_heuristic1}%\n\n")
@@ -615,7 +638,8 @@ with open(result_file_csv, mode="w", newline="", encoding="utf-8") as file:
             end = time.time()
             f.write(f"- Time: {end - start}s\n\n")
  
-            writer.writerow([file, fitness_reject, percentage_rejected_by_gp_reject,
+            writer.writerow([file,
+                             fitness_reject, percentage_rejected_by_gp_reject,
                              fitness_heuristic1, percentage_rejected_by_heuristic1,
                              fitness_heuristic2, percentage_rejected_by_heuristic2,
                              fitness_heuristic3, percentage_rejected_by_heuristic3])
