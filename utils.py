@@ -5,6 +5,20 @@ import json
 import copy
 import random
 import time
+import numpy as np
+
+SEED = 42
+
+def set_seed(seed_value):
+    # 1. Set seed cho thư viện random chuẩn của Python
+    random.seed(seed_value)
+    
+    # 2. Set seed cho thư viện NumPy (thường dùng trong tính toán fitness/surrogate)
+    np.random.seed(seed_value)
+    
+    print(f"--- Seed đã được thiết lập: {seed_value} ---")
+
+set_seed(SEED)
 
 def read_vnfs(data):
     vnfs = {}
@@ -124,25 +138,24 @@ def get_order_terminals(req_state):
 
     return BW, DC, RSFCL
 
-def get_placement_terminals(node, graph, vnf):
+def get_placement_terminals(node, graph, vnf, time):
     NU = node.get_total_used_capacity() / node.get_total_capacity()
-    ND = node.delay
+    if (node.vnf_dict[vnf] == -1):
+        ND = node.delay + vnf.boot_time[node.name] # if (vnf.boot_time is not None) else 0)
+    else:
+        ND = node.delay + max(node.vnf_valid_time[vnf] - time, 0)
     NC = node.get_total_cost(vnf)
     NN = len(graph.neighbors(node))
 
     return NU, ND, NC, NN
 
-def get_routing_terminals(path, node, target, time):
+def get_routing_terminals(path):    # node, target, time
     # Thêm xét thời gian node khả dụng
-    links_delay = 0
-    node_delay = 0
+    # links_delay = sum(link.delay for link in path)
+    # node_delay = path[-1].v.delay if (path) else 0
+    # PD = links_delay + max(node.vnf_valid_time[target] - time, 0) + node_delay
 
-    for link in path:
-        links_delay += link.delay
-        node_delay += link.v.delay
-
-    PD = links_delay + node_delay + max(node.vnf_valid_time[target] - time, 0)
-
+    PD = sum(link.delay for link in path)
     if (path):
         MLU = max(link.get_link_utilization() for link in path)
     else:
@@ -174,6 +187,9 @@ def evaluate(graph, nodes, requests,
     server_node = [n for n in nodes.values() if (n.type == "server")]
 
     if (display):
+        print("Before:")
+        print("Total capacity:", total_capacity)
+        print("Total bandwidth:", total_bandwidth)
         print("Remain total capacity:", remain_total_capacity)
         print("Remain total bandwidth:", remain_total_bandwidth)
 
@@ -191,8 +207,6 @@ def evaluate(graph, nodes, requests,
                     "Request": r,
                     "Current_vnf": 0,
                     "Current_location": nodes[r.src_node],
-                    # "Placement": [(nodes[r.src_node], ingress), (nodes[r.dst_node], egress)],
-                    # "Placement": [(nodes[r.src_node], ingress)],
                     "Placement": [],
                     "Path": [],
                     "Finish_time": float("inf"),
@@ -205,15 +219,6 @@ def evaluate(graph, nodes, requests,
 
                 nodes[r.src_node].deploy(ingress, time)
                 nodes[r.src_node].using(ingress)
-
-                #
-                # nodes[r.src_node].using(ingress)
-                # nodes[r.dst_node].deploy(egress, time)
-                # nodes[r.dst_node].using(egress)
-                #
-                # for i in range(len(r.sfc)):
-                #     place_vnf(active_requests[-1], r.sfc[i])
-                #
 
     # ==== Rule 1 ======================================================
     def action_request():
@@ -286,17 +291,14 @@ def evaluate(graph, nodes, requests,
             situation_place_id[0] += 1
 
         for node in server_node:
-        # for node in nodes.values():
-        #     if (node.type == "switch"):
-        #         continue
             if (not node.can_host(vnf)):
                 #
-                total_capacity = node.release()
-                remain_total_capacity[0] += total_capacity
+                # capacity = node.release()
+                # remain_total_capacity[0] += capacity
                 #
                 continue
 
-            NU, ND, NC, NN = get_placement_terminals(node, graph, vnf)
+            NU, ND, NC, NN = get_placement_terminals(node, graph, vnf, time)
 
             #
             if (collect_situation and (time in range(start_t, end_t + 1)) and (time % 4 == 0)):
@@ -305,8 +307,8 @@ def evaluate(graph, nodes, requests,
                 ])
             #
 
-            if (node.vnf_dict[vnf] != -1):
-                continue
+            # if (node.vnf_dict[vnf] != -1):
+            #     continue
 
             prio = placement_rule(NU, ND, NC, NN)
 
@@ -314,32 +316,33 @@ def evaluate(graph, nodes, requests,
                 best_prio = prio
                 best_node = node
 
-        if (best_node is None):
-            return False
+        if (best_node is not None):
 
-        total_capacity = best_node.deploy(vnf, time)
-        remain_total_capacity[0] -= total_capacity
-        req_state["Placement"].append((best_node, vnf))
+            if (best_node.vnf_dict[vnf] == -1):
+                best_node.deploy(vnf, time)
+            # remain_total_capacity[0] -= capacity
+            req_state["Placement"].append((best_node, vnf))
 
-        return True
+        return best_node, vnf
     
     # ==== Rule 4 ======================================================
-    def get_candidate_paths(graph, src, target, bandwidth, max_hop=20, k=100):
+    def get_candidate_paths(graph, src, target, bandwidth, max_hop, k=50):
         paths = []
 
         def dfs(curr, visited, path):
-            if (len(paths) >= k):
-                return
+            # if (len(paths) >= k):
+            #     return
             if (len(path) > max_hop):
                 return
-            if ((target in curr.vnf_dict) and (curr.vnf_dict[target] != -1)):
+            # if ((target in curr.vnf_dict) and (curr.vnf_dict[target] != -1) and (curr.can_host(target))):
+            if (curr is target):
                 paths.append(path.copy())
                 return
-            neighbors = sorted(
-                graph.neighbors(curr).items(),
-                key=lambda x: x[1].delay
-            )
-            for nxt, link in neighbors:
+            # neighbors = sorted(
+            #     graph.neighbors(curr).items(),
+            #     key=lambda x: x[1].delay
+            # )
+            for nxt, link in graph.neighbors(curr).items():
                 if (not link.can_route(bandwidth)):
                     continue
                 if (nxt not in visited):
@@ -358,17 +361,21 @@ def evaluate(graph, nodes, requests,
     #             return False
     #     return True
         
-    def route_vnf(req_state, target=None):
-        idx = req_state["Current_vnf"]
+    def route_vnf(req_state, best_node, vnf, max_hop=10):    # 15(nsf, cogent); 18(cogent); 8(conus)  
+        # idx = req_state["Current_vnf"]
+        # vnf = req_state["Request"].sfc[idx]
         bandwidth = req_state["Request"].bandwidth
         
         src = req_state["Current_location"]
-        if (target is None):
-            target = req_state["Request"].sfc[idx]
+        
+        if (best_node is None):
+            return False
+        
+        target = best_node
 
         # print(f"\n- Src: {src}; Target: {target}")
 
-        paths = get_candidate_paths(graph, src, target, bandwidth)
+        paths = get_candidate_paths(graph, src, target, bandwidth, max_hop)
         # print(len(paths))
         # print(f"- Paths: {paths}\n")
         if (not paths):
@@ -385,8 +392,8 @@ def evaluate(graph, nodes, requests,
             #     print("error")
             #     continue
             
-            node = path[-1].v if (path) else src
-            PD, MLU, PL = get_routing_terminals(path, node, target, time)
+            # node = path[-1].v if (path) else src
+            PD, MLU, PL = get_routing_terminals(path)
 
             #
             if (collect_situation and (time in range(start_t, end_t + 1)) and (time % 4 == 0)):
@@ -410,11 +417,9 @@ def evaluate(graph, nodes, requests,
             u = link.u
             v = link.v
             link_uv = neighbors(u).get(v)
-            # if (link_uv):
             link_uv.route(bandwidth)
 
             link_vu = neighbors(v).get(u)
-            # if (link_vu):
             link_vu.route(bandwidth)
 
             mlu[0] = max(mlu[0], link.get_link_utilization())
@@ -429,27 +434,29 @@ def evaluate(graph, nodes, requests,
 
         req_state["Path"].append(best_path)
         req_state["Current_location"] = dst_node
-        dst_node.using(target)
-        req_state["Cost"] += dst_node.get_total_cost(target)
-        total_cost[0] += dst_node.get_total_cost(target)
-        req_state["Process_time"] += max(dst_node.vnf_valid_time[target] - time, 0)
 
-        req_state["Using"].append((dst_node, target))
+        capacity = dst_node.using(vnf)
+        remain_total_capacity[0] -= capacity
+
+        req_state["Cost"] += dst_node.get_total_cost(vnf)
+        total_cost[0] += dst_node.get_total_cost(vnf)
+        req_state["Process_time"] += max(dst_node.vnf_valid_time[vnf] - time, 0)
+
+        req_state["Using"].append((dst_node, vnf))
 
         req_state["Current_vnf"] += 1
 
-        # #
-        # if (len(req_state["Path"]) > 1):
-        #     release_sub_path(req_state, path_idx=-2, node_idxs=[-3])
-        # #
+        #
+        if (len(req_state["Path"]) > 1):
+            release_sub_path(req_state, path_idx=-2, node_idxs=[-3])
+        #
 
         return True
     # ===================================================================
     
     def reject(req_state):
-        release_resources(req_state)
-
-        # release_sub_path(req_state, path_idx=-1, node_idxs=[-2, -1])
+        # release_resources(req_state)
+        release_sub_path(req_state, path_idx=-1, node_idxs=[-2, -1])
         # release_node()
 
         active_requests.remove(req_state)
@@ -463,86 +470,92 @@ def evaluate(graph, nodes, requests,
         
         nodes[r.dst_node].deploy(egress, time)
     
-        route_vnf(req_state, target=egress)
+        route_vnf(req_state, best_node=nodes[r.dst_node], vnf=egress, max_hop=15)   # 20(nsf, cogent); 22(cogent); 12(conus)
 
     def finish(req_state):
-        release_resources(req_state)
-
-        # release_sub_path(req_state, path_idx=-1, node_idxs=[-2, -1])
+        # release_resources(req_state)
+        release_sub_path(req_state, path_idx=-1, node_idxs=[-2, -1])
         # release_node()
 
         active_requests.remove(req_state)
         finished_requests.append(req_state)
 
-    # def release_sub_path(req_state, path_idx, node_idxs):
-    #     # if len(using) == 1 then chỉ release node else then như cũ
+    def release_sub_path(req_state, path_idx, node_idxs):
+        # if len(using) == 1 then chỉ release node else then như cũ
 
-    #     if (len(req_state["Using"]) == 1):
-    #         node, vnf = req_state["Using"][0]
-    #         node.not_using(vnf)
+        if (len(req_state["Using"]) == 1):
+            node, vnf = req_state["Using"][0]
 
-    #     else:
-    #         for node_idx in node_idxs:
-    #             node, vnf = req_state["Using"][node_idx]
-    #             node.not_using(vnf)
+            capacity = node.not_using(vnf)
+            remain_total_capacity[0] += capacity
+
+        else:
+            for node_idx in node_idxs:
+                node, vnf = req_state["Using"][node_idx]
+                
+                capacity = node.not_using(vnf)
+                remain_total_capacity[0] += capacity
             
-    #         req = req_state["Request"]
-    #         path = req_state["Path"][path_idx]
+            req = req_state["Request"]
+            path = req_state["Path"][path_idx]
 
-    #         for link in path:
-    #             u = link.u
-    #             v = link.v
-    #             link_uv = graph.neighbors(u).get(v)
-    #             link_uv.release(req.bandwidth)
-
-    #             link_vu = graph.neighbors(v).get(u)
-    #             link_vu.release(req.bandwidth)
-
-    #             remain_total_bandwidth[0] += req.bandwidth
-
-    # def release_node():
-    #     for node in nodes.values():
-    #         total_capacity = node.release()
-    #         remain_total_capacity[0] += total_capacity
-        
-    def release_resources(req_state):
-        req = req_state["Request"]
-
-        # release node capacity
-        for node, vnf in req_state["Using"]:
-            node.not_using(vnf)
-
-        # release link bandwidth
-        neighbors = graph.neighbors
-        for sub_path in req_state["Path"]:
-            for link in sub_path:
+            for link in path:
                 u = link.u
                 v = link.v
-                link_uv = neighbors(u).get(v)
-                # if (link_uv):
+                link_uv = graph.neighbors(u).get(v)
                 link_uv.release(req.bandwidth)
 
-                link_vu = neighbors(v).get(u)
-                # if (link_vu):
+                link_vu = graph.neighbors(v).get(u)
                 link_vu.release(req.bandwidth)
 
                 remain_total_bandwidth[0] += req.bandwidth
 
-        for node, _ in req_state["Using"]:
-        # for node in nodes.values():
-            total_capacity = node.release()
-            remain_total_capacity[0] += total_capacity
+    # def release_node():
+    #     for node in nodes.values():
+    #     #     total_capacity = node.release()
+    #     #     remain_total_capacity[0] += total_capacity
+    #     # for node, _ in req_state["Using"]:
+    #         node.release()
+        
+    # def release_resources(req_state):
+    #     req = req_state["Request"]
+
+    #     # release node capacity
+    #     for node, vnf in req_state["Using"]:
+    #         capacity = node.not_using(vnf)
+    #         remain_total_capacity[0] += capacity
+
+    #     # release link bandwidth
+    #     neighbors = graph.neighbors
+    #     for sub_path in req_state["Path"]:
+    #         for link in sub_path:
+    #             u = link.u
+    #             v = link.v
+    #             link_uv = neighbors(u).get(v)
+    #             # if (link_uv):
+    #             link_uv.release(req.bandwidth)
+
+    #             link_vu = neighbors(v).get(u)
+    #             # if (link_vu):
+    #             link_vu.release(req.bandwidth)
+
+    #             remain_total_bandwidth[0] += req.bandwidth
+
+    #     for node, _ in req_state["Using"]:
+    #     # for node in nodes.values():
+    #         node.release()
+    #         # remain_total_capacity[0] += capacity
             
     # Sửa thời gian xử lý node chỉ tính node sử dụng hoặc tính hết
     def compute_process_time(path):
         links_delay = 0
-        node_delay = 0
+        # node_delay = 0
 
         for link in path:
             links_delay += link.delay
-            node_delay += link.v.delay
+            # node_delay += link.v.delay
 
-        # node_delay = path[-1].v.delay
+        node_delay = path[-1].v.delay
         process_time = node_delay + links_delay
         # print(f"\n- Process_time: {nodes_delay} + {links_delay} = {process_time}")
 
@@ -561,9 +574,9 @@ def evaluate(graph, nodes, requests,
 
         for req_state in process_requests:
             # print(f"\nReq: {req_state["Request"]}")
-            place_vnf(req_state)
+            best_node, vnf = place_vnf(req_state)
             # print(f"- Place -> {req_state["Placement"]}")
-            route_vnf(req_state)
+            route_vnf(req_state, best_node, vnf)
             # print(f"- Route -> {req_state["Path"]}")
     
         # Xử lý
@@ -571,7 +584,7 @@ def evaluate(graph, nodes, requests,
             if (req_state["Request"].due_date <= time):
                 reject(req_state)
             elif (req_state["Process_time"] > 0):
-                req_state["Process_time"] = max(req_state["Process_time"] - 0.01, 0)
+                req_state["Process_time"] = max(req_state["Process_time"] - 0.05, 0)
                 # print("\nAfter process:")
                 # info_format(req_state)
             elif (req_state["Current_vnf"] == len(req_state["Request"].sfc)):
@@ -582,17 +595,20 @@ def evaluate(graph, nodes, requests,
                 req_state["Finish_time"] = time
                 finish(req_state)
                 # print("\nFinish:", req_state)
-    
-        time = round(time + 0.01, 2)
 
-    # Giải phóng nốt những node không dùng
-    for node in nodes.values():
-        total_capacity = node.release()
-        remain_total_capacity[0] += total_capacity
+        # Giải phóng những node không dùng
+        for node in nodes.values():
+            node.release()
+            # remain_total_capacity[0] += capacity
+    
+        time = round(time + 0.05, 2)
 
     # print(f"\n----\nFin: {len(finished_requests)}, Rej: {len(rejected_requests)}, Req: {len(requests)}, Active: {len(active_requests)}")
 
     if (display):
+        print("After:")
+        print("Total capacity:", total_capacity)
+        print("Total bandwidth:", total_bandwidth)
         print("Remain total capacity:", remain_total_capacity)
         print("Remain total bandwidth:", remain_total_bandwidth)
 
@@ -601,10 +617,6 @@ def evaluate(graph, nodes, requests,
                 if (val != -1):
                     print(node.name, key, val)
 
-    # Objective
-    # raw = (alpha * total_delay) + (beta * total_cost)
-    # penalty = delta * len(rejected_requests)
-    # objective = raw + penalty
 
     if (display):
         print("\nFinished_Req:", len(finished_requests))
@@ -632,25 +644,22 @@ def evaluate(graph, nodes, requests,
         print(f"\nCollect situation successful!")
 
     return total_cost[0], len(rejected_requests)
-    # return total_cost[0], len(rejected_requests), mlu[0]
-    # return len(rejected_requests)
 
 # Reference
 def ref_action_rule(RDD, NRP, RC, RB):
     return RDD
 
 def ref_order_rule(BW, DC, RSFCL):
-    # return -BW
-    return -RSFCL
+    return -DC
+    # return -RSFCL
     # return -(BW * RSFCL * DC)
 
 def ref_placement_rule(NU, ND, NC, NN):
     # return -(NU * ND * NC * (1 / NN))
-    # return -(ND * NC)
     return -NC
+    # return -ND
 
 def ref_routing_rule(PD, MLU, PL):
-    # return -(PD * PL)
     return -PD
     # return -(PD * MLU * PL)
 
@@ -672,15 +681,14 @@ def greedy_action_rule(RDD, NRP, RC, RB):
     return RDD
 
 def greedy_order_rule(BW, DC, RSFCL):
-    return -RSFCL
+    return -DC  # v2
+    # return -RSFCL # v1
 
 def greedy_placement_rule(NU, ND, NC, NN):
-    # return -(ND * NC)
     return -NC
     # return -ND
 
 def greedy_routing_rule(PD, MLU, PL):
-    # return -(PD * PL)
     return -PD
 
 # Random
@@ -704,7 +712,7 @@ def random_routing_rule(PD, MLU, PL):
 #     return 1
 
 # def combine_placement_rule(NU, ND, NC, NN):
-#     return -NC
+#     return -ND
 
 # def combine_routing_rule(PD, MLU, PL):
 #     return -PD
@@ -723,7 +731,7 @@ def info_format(req_state):
 # start = time.time()
 
 # graph, nodes, requests, total_capacity, total_bandwidth = read_data(
-#     "data_1_9\\nsf_centers_easy_s2.json"
+#     "input_25\\cogent_uniform_normal_s2.json"
 # )
 
 # T = max([req.arrival_time for req in requests])
