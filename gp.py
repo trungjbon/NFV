@@ -162,9 +162,9 @@ def evaluate_individual(ind, data_file, start_t=0, end_t=0, display=False, penal
     )
  
     reject_ratio = num_rejected_requests / len(requests)
-    if (reject_ratio > 0.3):
-        penalty_cost = (reject_ratio - 0.3) * penalty_cost * 2
-        penalty_reject = (reject_ratio - 0.3) * penalty_reject
+    if (reject_ratio > 0.2):
+        penalty_cost = (reject_ratio - 0.2) * penalty_cost * 2
+        penalty_reject = (reject_ratio - 0.2) * penalty_reject
 
         total_cost += penalty_cost
         num_rejected_requests += penalty_reject
@@ -464,23 +464,23 @@ def genetic_programming(pop_size=100, generation=30, cx_prob=0.8, mut_prob=0.2):
 # Run
 # =========================
 
-data_folder = "input_25"
-# data_folder = "data_1_9"
-result_file = "result02\\end02_r42\\conus_urban_easy_s3.txt"
-result_file_csv = "result02\\end02_r42\\conus_urban_easy_s3.csv"
+# data_folder = "input_25"
+data_folder = "data_1_9"
+result_file = "result02\\end02_r42_avg\\nsf_uniform.txt"
+result_file_csv = "result02\\end02_r42_avg\\nsf_uniform.csv"
 
-# data_files = [f for f in os.listdir(data_folder) if (f.startswith("nsf_uniform_easy") or f.startswith("nsf_uniform_normal"))]
+data_files = [f for f in os.listdir(data_folder) if (f.startswith("nsf_uniform_easy") or f.startswith("nsf_uniform_normal"))]
 
-data_files = [f for f in os.listdir(data_folder) if (f.startswith("conus_urban_easy_s3"))]
+# data_files = [f for f in os.listdir(data_folder) if (f.startswith("nsf_centers_easy_s1"))]
 
 import csv
 
 with open(result_file_csv, mode="w", newline="", encoding="utf-8") as file:
     writer = csv.writer(file)
     writer.writerow(["Objective: (Cost, Num rejected reqs)"])
-    writer.writerow(["DATASET", "GP reject", "",
+    writer.writerow(["DATASET", "GP reject", "", "GP avg top-5", ""
                      "Heuristic 1 (Greedy)", "", "Heuristic 2 (First Fit)", "", "Heuristic 3 (Random)", ""])  # header
-    writer.writerow(["", "Fitness", "Percentage rejected", 
+    writer.writerow(["", "Fitness", "Percentage rejected", "Fitness", "Percentage rejected",
                      "Fitness", "Percentage rejected", "Fitness", "Percentage rejected", "Fitness", "Percentage rejected"])
 
     with open(result_file, "w") as f:
@@ -534,18 +534,19 @@ with open(result_file_csv, mode="w", newline="", encoding="utf-8") as file:
             # for i, ind in enumerate(pareto_archive):
             #     print(f"Sol {i}: {ind.fitness.values}")
             print(f"Len pareto: {len(pareto_archive)}")
+            f.write(f"\t\t+ Len pareto: {len(pareto_archive)}\n")
+            sorted_front = sorted(pareto_archive, key=lambda ind: ind.fitness.values[1])
+            k = min(len(pareto_archive), 5)
+            top_reject = sorted_front[:k]
             
-            # k = min(len(pareto_archive), 20)
-            # best_inds = sorted(pareto_archive, key=lambda ind: ind.fitness.values[1])[:k]
-            
-            # best_ind_reject = min(pareto_archive, key=lambda ind: ind.fitness.values[1])
+            best_ind_reject = min(pareto_archive, key=lambda ind: ind.fitness.values[1])
 
-            # f.write(f"\t\t+ Selected reject solution:\n")
-            # f.write(f"\t\t\t> ACT rule: {best_ind_reject[0]}\n")
-            # f.write(f"\t\t\t> ORD rule: {best_ind_reject[1]}\n")
-            # f.write(f"\t\t\t> PLACE rule: {best_ind_reject[2]}\n")
-            # f.write(f"\t\t\t> ROUTE rule: {best_ind_reject[3]}\n")
-            # f.write(f"\t\t\t> Finess: {best_ind_reject.fitness.values}\n\n")
+            f.write(f"\t\t+ Selected reject solution:\n")
+            f.write(f"\t\t\t> ACT rule: {best_ind_reject[0]}\n")
+            f.write(f"\t\t\t> ORD rule: {best_ind_reject[1]}\n")
+            f.write(f"\t\t\t> PLACE rule: {best_ind_reject[2]}\n")
+            f.write(f"\t\t\t> ROUTE rule: {best_ind_reject[3]}\n")
+            f.write(f"\t\t\t> Finess: {best_ind_reject.fitness.values}\n\n")
 
             # Test
             start_t = end_t + 1
@@ -555,14 +556,9 @@ with open(result_file_csv, mode="w", newline="", encoding="utf-8") as file:
             reqs = [req for req in requests if ((req.arrival_time >= start_t) and (req.arrival_time <= end_t))]
             f.write(f"\t\t+ Total requests: {len(reqs)}\n")
 
-            f.write(f"\t\t+ Len pareto: {len(pareto_archive)}\n")
-
-            #
-            best_ind = None
-            best_cost_test = float("inf")
-            best_reject_test = float("inf")
-
-            for i, ind in enumerate(pareto_archive):
+            total_cost_test = 0
+            total_reject_test = 0
+            for i, ind in enumerate(top_reject):
                 print(f"\nEvaluate ind {i} in test")
                 f.write(f"\t\t\t> Evaluate ind {i} in test\n")
 
@@ -572,25 +568,52 @@ with open(result_file_csv, mode="w", newline="", encoding="utf-8") as file:
                 f.write(f"\t\t\t> Fitness: {ind.fitness.values}\n")
                 f.write(f"\t\t\t> Fitness test: {fitness_test}\n\n")
 
-                if ((fitness_test[1] < best_reject_test) or 
-                    ((fitness_test[1] == best_reject_test) and (fitness_test[0] < best_cost_test))):
-                    best_cost_test = fitness_test[0]
-                    best_reject_test = fitness_test[1]
-                    best_ind = ind
+                total_cost_test += fitness_test[0]
+                total_reject_test += fitness_test[1]
 
-            f.write(f"\t\t+ Selected reject solution:\n")
-            f.write(f"\t\t\t> ACT rule: {best_ind[0]}\n")
-            f.write(f"\t\t\t> ORD rule: {best_ind[1]}\n")
-            f.write(f"\t\t\t> PLACE rule: {best_ind[2]}\n")
-            f.write(f"\t\t\t> ROUTE rule: {best_ind[3]}\n")
-            f.write(f"\t\t\t> Finess: {best_ind.fitness.values}\n\n")
+            avg_cost = total_cost_test / len(top_reject)
+            avg_reject = total_reject_test / len(top_reject)
+
+            print(f"Avg cost: {avg_cost}, Avg reject: {avg_reject}")
+
+            #
+            # best_ind = None
+            # best_cost_test = float("inf")
+            # best_reject_test = float("inf")
+
+            # for i, ind in enumerate(pareto_archive):
+            #     print(f"\nEvaluate ind {i} in test")
+            #     f.write(f"\t\t\t> Evaluate ind {i} in test\n")
+
+            #     fitness_test = evaluate_individual(ind, data_file=data_path, start_t=start_t, end_t=end_t)
+            #     print(f"Fitness: {ind.fitness.values}")
+            #     print(f"Fitness test: {fitness_test}")
+            #     f.write(f"\t\t\t> Fitness: {ind.fitness.values}\n")
+            #     f.write(f"\t\t\t> Fitness test: {fitness_test}\n\n")
+
+            #     if ((fitness_test[1] < best_reject_test) or 
+            #         ((fitness_test[1] == best_reject_test) and (fitness_test[0] < best_cost_test))):
+            #         best_cost_test = fitness_test[0]
+            #         best_reject_test = fitness_test[1]
+            #         best_ind = ind
+
+            # f.write(f"\t\t+ Selected reject solution:\n")
+            # f.write(f"\t\t\t> ACT rule: {best_ind[0]}\n")
+            # f.write(f"\t\t\t> ORD rule: {best_ind[1]}\n")
+            # f.write(f"\t\t\t> PLACE rule: {best_ind[2]}\n")
+            # f.write(f"\t\t\t> ROUTE rule: {best_ind[3]}\n")
+            # f.write(f"\t\t\t> Finess: {best_ind.fitness.values}\n\n")
             #
 
-            # fitness_reject = evaluate_individual(best_ind_reject, data_file=data_path, start_t=start_t, end_t=end_t, display=True)
-            fitness_reject = evaluate_individual(best_ind, data_file=data_path, start_t=start_t, end_t=end_t, display=True)
-            f.write(f"\t\t+ Fitness reject: {fitness_reject}\n")
+            fitness_reject = evaluate_individual(best_ind_reject, data_file=data_path, start_t=start_t, end_t=end_t, display=True)
+            f.write(f"\t\t+ Fitness: {fitness_reject}\n")
             percentage_rejected_by_gp_reject = round(fitness_reject[1] / len(reqs), 2)
             f.write(f"\t\t+ Percentage of rejected requests: {percentage_rejected_by_gp_reject}%\n\n")
+
+            fitness_avg = (avg_cost, avg_reject)
+            f.write(f"\t\t+ Fitness avg top-5: {fitness_avg}\n")
+            percentage_rejected_by_gp_avg = round(fitness_avg[1] / len(reqs), 2)
+            f.write(f"\t\t+ Percentage of avg top-5 rejected requests: {percentage_rejected_by_gp_avg}%\n\n")
 
             # Heuristic 1
             f.write(f"\t- Heuristic 1 (Greedy): start_t = {start_t}, end_t = {end_t}\n")
@@ -640,6 +663,7 @@ with open(result_file_csv, mode="w", newline="", encoding="utf-8") as file:
  
             writer.writerow([file,
                              fitness_reject, percentage_rejected_by_gp_reject,
+                             fitness_avg, percentage_rejected_by_gp_avg,
                              fitness_heuristic1, percentage_rejected_by_heuristic1,
                              fitness_heuristic2, percentage_rejected_by_heuristic2,
                              fitness_heuristic3, percentage_rejected_by_heuristic3])
