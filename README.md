@@ -1,5 +1,7 @@
 # NFV
-## Sử dụng Surrogate-Assisted + NSGA-II + GP để giải bài toán Đặt VNF ​​và Định tuyến lưu lượng trong mạng ảo hóa
+## Sử dụng GP + NSGA-II + Surrogate-Assisted để giải bài toán Đặt VNF ​​và Định tuyến lưu lượng trong mạng ảo hóa
+
++ Với khung chương trình là GP; NSGA-II giải quyết yếu tố đa mục tiêu; Surrogate-Assisted giúp giảm thời gian huấn luyện thuật toán
 
 - Thực nghiệm trên các cấu trúc liên kết mạng thực tế được sử dụng bao gồm: NSF (14 nút, 21 liên kết), CONUS (75 nút, 99 liên kết), COGENT (104 nút, 116 liên kết)
 - Các kết quả thực nghiệm được đánh giá dựa trên 2 tiêu chí reject_rate và cost. Mỗi kết quả được thể hiện theo thứ tự là: +/=/- tương ứng với kết quả GP tốt hơn/bằng/tệ hơn so với các thuật toán heuristic khác.
